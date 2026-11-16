@@ -2674,6 +2674,14 @@ function sha256Hex(str){
 }
 
 function lockedNow(){ return document.documentElement.classList.contains('locked'); }
+/* 잠금 중에는 화면 낭독기·키보드에서도 대시보드 내용이 잡히지 않도록 */
+function applyLockInert(){
+  var on = lockedNow();
+  var nodes = document.querySelectorAll('.topbar, .pind, #pager, .tabbar');
+  for (var i = 0; i < nodes.length; i++){
+    try { nodes[i].inert = on; } catch (e) {}
+  }
+}
 function setPinMsg(text, ok){
   var m = el('pinMsg');
   if (!m) return;
@@ -2700,12 +2708,14 @@ function lockNow(){
   lockBusy = false;
   clearPin();
   setPinMsg('');
+  applyLockInert();
   var sc = el('lockScreen');
   if (sc) sc.scrollTop = 0;
 }
 
 function unlockNow(){
   document.documentElement.classList.remove('locked');
+  applyLockInert();
   try { localStorage.setItem(LOCK_KEY, '1'); } catch (e) {}
   lockBusy = false;
   clearPin();
@@ -2787,6 +2797,7 @@ function initLock(){
   });
   /* 잠긴 채로 열렸다면 입력 준비 (모바일 키보드가 가리지 않도록 자동 포커스는 하지 않음) */
   setPinMsg('');
+  applyLockInert();
 }
 
 /* ---------- 15. 시작 ---------- */
