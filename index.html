@@ -645,7 +645,7 @@ function dated(date, start, end, title, members, note){
 }
 
 /* 시드 데이터 버전 — 내용이 바뀌면 올리고, migrateSeeds() 에 변경 내역을 적습니다. */
-var SEED_VERSION = 3;
+var SEED_VERSION = 4;
 
 function seedList(){
   return [
@@ -675,7 +675,7 @@ function seedList(){
     dated('2026-11-16','14:30','','석미나 미팅 (월촌역 스타벅스)',['mom'],'krs 결과지·독서케어 · 패드 지참 안내 · 별인증 꼭!'),
     dated('2026-11-19','17:00','','배스킨라빈스 보험점검',['mom'],''),
     dated('2026-11-18','09:00','','이솔 방문',['mom'],''),
-    dated('2026-11-18','16:30','','강다혜 방문',['mom'],'토토리 명작 꼬마 워크북 활동'),
+    dated('2026-11-20','16:30','','강다혜 방문',['mom'],'토토리 명작 꼬마 워크북 활동'),
     dated('2026-11-18','18:00','','임다현 방문',['mom'],'총 6회 중 5회차 · 빅플러스 안내'),
     dated('2026-11-19','09:50','','수능일 등교시간 변경 (대서초 09:50 / 본리초 10:00)',['hyeonse','eunse','eunsu'],'평소보다 늦게 등교해요'),
     dated('2026-11-19','10:00','','교육국장님 교육',['mom'],'등교 시간과 겹치지 않게 확인!'),
@@ -875,6 +875,13 @@ function migrateSeeds(st){
     var bs = seedMatch(list, 'date', '2026-11-17', '배스킨라빈스 보험점검')
           || seedMatch(list, 'date', '2026-11-19', '배스킨라빈스 보험점검');
     if (bs) bs.date = '2026-11-19';
+  }
+
+  if (from < 4) {
+    /* 강다혜 방문: 11/18(수) 16:30 → 11/20(금) 16:30 (소연 님 요청) */
+    var kd = seedMatch(list, 'date', '2026-11-18', '강다혜 방문')
+          || seedMatch(list, 'date', '2026-11-20', '강다혜 방문');
+    if (kd) kd.date = '2026-11-20';
   }
 
   st.seedVersion = SEED_VERSION;
