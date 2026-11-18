@@ -600,6 +600,7 @@ html.locked .lock-screen{
     <div id="home-countdown"></div>
     <div id="home-morning"></div>
     <div id="home-today"></div>
+    <div id="home-shopping"></div>
     <div id="home-agenda"></div>
     <div id="home-kids"></div>
   </section>
@@ -696,7 +697,7 @@ function dated(date, start, end, title, members, note){
 }
 
 /* 시드 데이터 버전 — 내용이 바뀌면 올리고, migrateSeeds() 에 변경 내역을 적습니다. */
-var SEED_VERSION = 5;
+var SEED_VERSION = 6;
 
 function seedList(){
   return [
@@ -782,6 +783,14 @@ function prepSeed(){
   return out;
 }
 
+/* 살 것 · 장보기 목록 시드 — 목록이 바뀌면 SEED_VERSION 을 올리고 migrateSeeds() 에 적습니다.
+   (기존 저장본의 체크 상태는 건드리지 않고, 없는 항목만 새로 넣습니다) */
+function shoppingSeed(){
+  return [
+    { id:'sh_eunse_goggles', title:'은세 수경', emoji:'🥽', added:'2026-11-19', done:false }
+  ];
+}
+
 function defaultState(){
   var study = studySeed(), prep = prepSeed(), morning = {}, rewards = {};
   KIDS.forEach(function(mid){ morning[mid] = {}; });
@@ -795,6 +804,7 @@ function defaultState(){
     createdAt: new Date().toISOString(),
     settings: { tokenPerStudy: 1 },
     schedules: defaultSchedules(),
+    shopping: shoppingSeed(),
     agendas: [
       { id:'ag_breakfast', emoji:'🍚', title:'아침밥 먹기' },
       { id:'ag_breath',    emoji:'🌬️', title:'화날 때 심호흡 3번하기' }
@@ -842,6 +852,15 @@ function normalize(src){
   if (!Array.isArray(out.schedules)) out.schedules = d.schedules;
   if (!Array.isArray(out.agendas) || out.agendas.length === 0) out.agendas = d.agendas;
   if (!Array.isArray(out.ledger)) out.ledger = [];
+  if (!Array.isArray(out.shopping)) out.shopping = d.shopping.slice();
+  out.shopping.forEach(function(it){
+    if (!it || typeof it !== 'object') return;
+    if (!it.id) it.id = uid('sh');
+    if (!it.emoji) it.emoji = '🛒';
+    it.title = String(it.title == null ? '' : it.title).slice(0, 40);
+    it.done = !!it.done;
+  });
+  out.shopping = out.shopping.filter(function(it){ return it && it.title; });
   if (!out.agendaChecks || typeof out.agendaChecks !== 'object') out.agendaChecks = {};
   if (!out.celebrated || typeof out.celebrated !== 'object') out.celebrated = {};
   if (!out.study || typeof out.study !== 'object') out.study = d.study;
@@ -945,6 +964,16 @@ function migrateSeeds(st){
         sg.title = '수능일 등교시간 변경 (대서초 09:45 / 본리초 09:20)';
         sg.note = '은세·은수 09:45 · 현세 09:20 등교';
       }
+    }
+  }
+
+  if (from < 6) {
+    /* 2026-11-19 '살 것 · 장보기' 목록 신설 — 오늘 살 것 '은세 수경' (소연 님 요청)
+       기존 저장본에는 목록이 없으므로 배열만 만들고, 이미 있는 항목·체크 상태는 건드리지 않습니다. */
+    if (!Array.isArray(st.shopping)) st.shopping = [];
+    var hasGoggles = st.shopping.some(function(it){ return it && it.title === '은세 수경'; });
+    if (!hasGoggles) {
+      st.shopping.push({ id:'sh_eunse_goggles', title:'은세 수경', emoji:'🥽', added:'2026-11-19', done:false });
     }
   }
 
@@ -1460,6 +1489,63 @@ function todayCard(){
     + rows + tmr + '</div>';
 }
 
+/* ---- 홈: 살 것 · 장보기 ---- */
+function shoppingList(){
+  if (!Array.isArray(state.shopping)) state.shopping = [];
+  return state.shopping;
+}
+function addShoppingItem(title, emoji, addedDate){
+  var list = shoppingList();
+  var t = String(title == null ? '' : title).trim().slice(0, 40);
+  if (!t) return null;
+  var it = { id: uid('sh'), title: t, emoji: emoji || '🛒', added: addedDate || today(), done: false };
+  list.push(it);
+  save();
+  return it;
+}
+function toggleShoppingItem(id){
+  var it = shoppingList().filter(function(x){ return x.id === id; })[0];
+  if (!it) return null;
+  it.done = !it.done;
+  save();
+  return it;
+}
+function removeShoppingItem(id){
+  var list = shoppingList();
+  var before = list.length;
+  state.shopping = list.filter(function(x){ return x.id !== id; });
+  if (state.shopping.length !== before) save();
+}
+
+function shoppingRow(it){
+  var on = !!it.done;
+  return '<div class="row'+(on?' on':'')+'">'
+    + '<button class="ck'+(on?' on':'')+'" data-act="shopToggle" data-id="'+it.id+'"'
+    +   ' aria-label="'+esc(it.title)+' 샀어요 체크">'+(on?'✓':'')+'</button>'
+    + '<span class="row-b"><b><span class="em">'+(it.emoji||'🛒')+'</span> <span class="tt">'+esc(it.title)+'</span></b>'
+    +   (it.added ? '<span class="sub" style="font-size:11.5px">'+kdate(it.added)+'</span>' : '')+'</span>'
+    + '<span class="row-tools"><button class="t-btn del" data-act="shopDel" data-id="'+it.id+'"'
+    +   ' aria-label="'+esc(it.title)+' 삭제">✕</button></span>'
+    + '</div>';
+}
+
+function shoppingCard(){
+  var list = shoppingList();
+  var todo = list.filter(function(it){ return !it.done; });
+  var done = list.filter(function(it){ return it.done; });
+  var body = list.length
+    ? todo.map(shoppingRow).join('') + done.map(shoppingRow).join('')
+    : '<p class="empty">살 것을 적어 두면 여기서 바로 체크할 수 있어요</p>';
+  return '<div class="card">'
+    + '<div class="card-h"><div><h2>🛒 살 것 · 장보기</h2>'
+    +   '<p class="sub">사고 나면 콕! 체크한 것은 아래로 내려가요</p></div>'
+    +   '<div class="cnt">'+todo.length+'<span>개 남음</span></div></div>'
+    + body
+    + '<div class="add-inline"><input id="shopIn" type="text" maxlength="40" placeholder="살 것 적기 (예: 은세 수경)">'
+    +   '<button class="btn sm" data-act="shopAdd">추가</button></div>'
+    + '</div>';
+}
+
 /* ---- 홈: 가족회의 안건 ---- */
 function agendaCard(){
   var d = today();
@@ -1694,6 +1780,7 @@ function renderHome(){
   el('home-weather').innerHTML = weatherCard();
   el('home-countdown').innerHTML = schoolCountdownCard();
   el('home-today').innerHTML = todayCard();
+  el('home-shopping').innerHTML = shoppingCard();
   el('home-agenda').innerHTML = agendaCard();
   el('home-kids').innerHTML = kidsCard();
   paintSchool();
@@ -2479,6 +2566,31 @@ document.addEventListener('click', function(e){
       break;
     }
 
+    case 'shopToggle': {
+      var shit = toggleShoppingItem(t.getAttribute('data-id'));
+      renderAll();
+      if (shit && shit.done) toast('샀어요 ✓ ' + shit.title);
+      break;
+    }
+
+    case 'shopAdd': {
+      var shin = el('shopIn');
+      var shv = shin ? (shin.value || '').trim() : '';
+      if (!shv) { toast('살 것을 적어 주세요'); return; }
+      addShoppingItem(shv);
+      renderAll(); toast('살 것 목록에 넣었어요');
+      break;
+    }
+
+    case 'shopDel': {
+      var shid = t.getAttribute('data-id');
+      var shrow = shoppingList().filter(function(x){ return x.id === shid; })[0];
+      askConfirm('“' + (shrow ? shrow.title : '항목') + '”을(를) 목록에서 지울까요?', function(){
+        removeShoppingItem(shid); renderAll(); toast('목록에서 지웠어요');
+      });
+      break;
+    }
+
     case 'prepToggle':
       togglePrep(t.getAttribute('data-mid'), t.getAttribute('data-id'));
       renderAll();
@@ -2611,6 +2723,10 @@ document.addEventListener('keydown', function(e){
   if (e.key === 'Enter' && e.target && e.target.id === 'prepInput') {
     var btn = document.querySelector('[data-act="prepAdd"]');
     if (btn) btn.click();
+  }
+  if (e.key === 'Enter' && e.target && e.target.id === 'shopIn') {
+    var sbtn = document.querySelector('[data-act="shopAdd"]');
+    if (sbtn) sbtn.click();
   }
   if (modalOpen()) return;
   var tag = (e.target && e.target.tagName || '').toLowerCase();
