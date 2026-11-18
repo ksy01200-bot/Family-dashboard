@@ -242,6 +242,56 @@ main.pager.dragging .page,main.pager.dragging .page *{user-select:none;-webkit-u
 .morning-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px}
 .morning-foot .hint{font-size:12px;color:var(--muted);font-weight:700}
 
+/* ---------- 등교 카운트다운 ---------- */
+.cd-day{flex:0 0 auto;font-size:12px;font-weight:800;color:var(--ink2);background:#FBF4E9;border-radius:999px;padding:5px 11px}
+.cd-rows{display:flex;flex-direction:column;gap:9px}
+.cd-row{
+  display:flex;align-items:center;gap:11px;padding:11px 12px;border-radius:18px;
+  background:#FBF7EF;border:1.5px solid transparent;
+  transition:background .25s, border-color .25s;
+}
+.cd-av{flex:0 0 auto;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-size:19px}
+.cd-who{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.cd-who b{font-size:15px;font-weight:800;letter-spacing:-.02em;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.cd-who small{font-size:11.5px;color:var(--muted);font-weight:700;white-space:nowrap}
+.cd-ov{
+  font-style:normal;font-size:10px;font-weight:800;color:#A2661F;background:#FFF1C9;
+  border-radius:6px;padding:1px 5px;letter-spacing:-.01em;
+}
+.cd-t{flex:0 0 auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px;text-align:right}
+.cd-num{
+  display:block;font-size:25px;font-weight:800;line-height:1.08;letter-spacing:-.03em;
+  font-variant-numeric:tabular-nums;color:var(--ink);white-space:nowrap;
+}
+.cd-note{
+  display:block;font-size:11px;font-weight:700;color:var(--muted);
+  font-variant-numeric:tabular-nums;line-height:1.3;
+  white-space:nowrap;max-width:142px;overflow:hidden;text-overflow:ellipsis;
+}
+.cd-row.run .cd-num{color:var(--green-deep)}
+.cd-row.warn{background:#FFF6E5;border-color:#FFE0AE}
+.cd-row.warn .cd-num{color:#C98A1E}
+.cd-row.warn .cd-note{color:#B48224}
+.cd-row.urgent{background:#FFEDE8;border-color:#FFC7B6;animation:cdPulse 1.7s ease-in-out infinite}
+.cd-row.urgent .cd-num{color:#D9533E}
+.cd-row.urgent .cd-note{color:#C4695E}
+.cd-row.done{background:#EFF8F2}
+.cd-row.done .cd-num{color:var(--green-deep);font-size:20px}
+.cd-row.weekend{background:#F4F1FB}
+.cd-row.weekend .cd-num{color:#7C74A8;font-size:20px}
+@keyframes cdPulse{0%,100%{box-shadow:0 0 0 0 rgba(217,83,62,0)}50%{box-shadow:0 0 0 4px rgba(217,83,62,.11)}}
+.cd-tip{margin-top:9px;font-size:11.5px;font-weight:800;color:#A2661F;background:#FFF7DF;border-radius:11px;padding:7px 10px}
+.cd-next{margin-top:9px;font-size:11.5px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums}
+.cd-next:empty{display:none}
+@media (prefers-reduced-motion: reduce){.cd-row.urgent{animation:none}}
+@media (max-width:360px){
+  .cd-row{padding:10px 10px;gap:9px}
+  .cd-av{width:32px;height:32px;font-size:17px}
+  .cd-who b{font-size:14px}
+  .cd-num{font-size:22px}
+  .cd-row.done .cd-num,.cd-row.weekend .cd-num{font-size:18px}
+}
+
 /* ---------- agenda ---------- */
 .ag{padding:10px 0;border-bottom:1px dashed var(--line)}
 .ag:last-child{border-bottom:0;padding-bottom:0}
@@ -547,6 +597,7 @@ html.locked .lock-screen{
  <div class="track" id="track">
   <section id="tab-home" class="tab page active" aria-label="홈">
     <div id="home-weather"></div>
+    <div id="home-countdown"></div>
     <div id="home-morning"></div>
     <div id="home-today"></div>
     <div id="home-agenda"></div>
@@ -1443,12 +1494,194 @@ function kidsCard(){
     + '<p class="sub">공부·토큰 한눈에 보기</p></div></div>'+rows+'</div>';
 }
 
+/* ---- 홈: 등교 카운트다운 ---- */
+var ARRIVAL_GROUPS = [
+  { key:'hyeonse',     label:'현세',    emoji:'⚾',  color:'#FFE3D3', members:['hyeonse'],        time:'07:45' },
+  { key:'eunse-eunsu', label:'은세·은수', emoji:'🏊‍♀️', color:'#D9E9FF', members:['eunse','eunsu'], time:'08:15' }
+];
+
+/* 학교 공지로 등교 시간이 바뀌는 날 — 일정 시드의 '수능일 등교시간 변경'과 같은 내용입니다.
+   2026-11-19 수능일: 대서초 09:50 / 본리초 10:00 */
+var ARRIVAL_OVERRIDES = {
+  '2026-11-19': {
+    title: '수능일 등교시간 변경', short: '수능일',
+    hyeonse: '10:00', eunse: '09:50', eunsu: '09:50'
+  }
+};
+
+/* 테스트·미리보기용 시각 지정 ('HH:MM' 또는 'HH:MM:SS'). 평소에는 null. */
+var clockTimeOverride = null;
+
+function clockNow(){
+  var base = nowDate();
+  var real = new Date();
+  var t = clockTimeOverride ? String(clockTimeOverride).split(':') : null;
+  return new Date(base.getFullYear(), base.getMonth(), base.getDate(),
+    t ? (Number(t[0])||0) : real.getHours(),
+    t ? (Number(t[1])||0) : real.getMinutes(),
+    t ? (Number(t[2])||0) : real.getSeconds(), 0);
+}
+function isSchoolDay(dateStr){
+  var w = parseYmd(dateStr).getDay();
+  return w >= 1 && w <= 5;
+}
+function nextSchoolDay(dateStr){
+  var s = dateStr;
+  for (var i=0;i<8;i++){
+    s = shiftDate(s, 1);
+    if (isSchoolDay(s)) return s;
+  }
+  return s;
+}
+function arrivalTimeFor(group, dateStr){
+  var ov = ARRIVAL_OVERRIDES[dateStr];
+  if (ov){
+    for (var i=0;i<group.members.length;i++){
+      if (ov[group.members[i]]) {
+        return { time: ov[group.members[i]], override: true, short: ov.short || '' };
+      }
+    }
+  }
+  return { time: group.time, override: false, short: '' };
+}
+function atClock(dateStr, hhmm){
+  var p = String(hhmm).split(':');
+  var d = parseYmd(dateStr);
+  d.setHours(Number(p[0])||0, Number(p[1])||0, 0, 0);
+  return d;
+}
+function ampmTime(hhmm){
+  var p = String(hhmm).split(':');
+  var h = Number(p[0])||0, m = Number(p[1])||0;
+  var ap = h < 12 ? '오전' : '오후';
+  var h12 = h % 12; if (h12 === 0) h12 = 12;
+  return ap + ' ' + h12 + ':' + pad2(m);
+}
+/* 1초 단위 시계 표시: 1시간 이상이면 H:MM:SS, 그 전에는 MM:SS */
+function cdClock(sec){
+  sec = Math.max(0, Math.round(sec));
+  var h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+  return (h > 0 ? h + ':' + pad2(m) : pad2(m)) + ':' + pad2(s);
+}
+/* 다음 등교까지처럼 하루를 넘기는 시간 */
+function cdLong(sec){
+  sec = Math.max(0, Math.round(sec));
+  var d = Math.floor(sec/86400), h = Math.floor((sec%86400)/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+  if (d > 0) return d + '일 ' + pad2(h) + ':' + pad2(m) + ':' + pad2(s);
+  return cdClock(sec);
+}
+function cdHasGoStamp(mid, dateStr){
+  return !!morningDay(mid, dateStr).go;
+}
+
+/* 두 타이머의 지금 상태 계산 */
+function arrivalStates(){
+  var date = today();
+  var schoolDay = isSchoolDay(date);
+  var next = nextSchoolDay(date);
+  var now = clockNow();
+  var out = [];
+  ARRIVAL_GROUPS.forEach(function(g){
+    var a = arrivalTimeFor(g, date);
+    var target = atClock(date, a.time);
+    var na = arrivalTimeFor(g, next);
+    var nextTarget = atClock(next, na.time);
+    var left = target.getTime() - now.getTime();
+    var st = {
+      group: g, time: a.time, override: a.override, short: a.short,
+      nextDate: next, nextTime: na.time,
+      nextLeftMs: nextTarget.getTime() - now.getTime(),
+      leftMs: left, state: 'run'
+    };
+    var allGone = g.members.every(function(mid){ return cdHasGoStamp(mid, date); });
+    if (!schoolDay) st.state = 'weekend';
+    else if (allGone) st.state = 'gone';
+    else if (left <= 0) st.state = 'done';
+    if (st.state !== 'run') st.leftMs = st.nextLeftMs;
+    out.push(st);
+  });
+  return out;
+}
+
+function schoolCountdownCard(){
+  var date = today();
+  var rows = ARRIVAL_GROUPS.map(function(g){
+    var a = arrivalTimeFor(g, date);
+    return '<div class="cd-row run" data-key="'+g.key+'">'
+      + '<span class="cd-av" style="background:'+g.color+'" aria-hidden="true">'+g.emoji+'</span>'
+      + '<span class="cd-who"><b>'+esc(g.label)
+      +   (a.override ? '<em class="cd-ov">'+esc(a.short)+'</em>' : '')+'</b>'
+      +   '<small>'+esc(ampmTime(a.time))+' 등교</small></span>'
+      + '<span class="cd-t"><b class="cd-num">--:--</b><small class="cd-note"></small></span>'
+      + '</div>';
+  }).join('');
+  var hasOv = ARRIVAL_GROUPS.some(function(g){ return arrivalTimeFor(g, date).override; });
+  var ov = ARRIVAL_OVERRIDES[date];
+  return '<div class="card cd-card">'
+    + '<div class="card-h">'
+    +   '<div><h2>⏰ 등교까지</h2><p class="sub" id="cdNow">지금 --:--</p></div>'
+    +   '<div class="cd-day">'+WD[parseYmd(date).getDay()]+'요일</div>'
+    + '</div>'
+    + '<div class="cd-rows" id="cdRows" data-date="'+esc(date)+'">'+rows+'</div>'
+    + (hasOv && ov ? '<p class="cd-tip">📌 '+esc(ov.title)+'에 맞춰 시간을 바꿨어요</p>' : '')
+    + '<p class="cd-next" id="cdNext"></p>'
+    + '</div>';
+}
+
+/* 1초마다 숫자만 다시 칠합니다 (카드를 새로 그리지 않아 화면이 깜빡이지 않습니다) */
+function paintSchool(){
+  var rows = el('cdRows');
+  if (!rows) return;
+  if (rows.getAttribute('data-date') !== today()) { renderHome(); return; }   /* 자정을 넘겼다면 새로 그리기 */
+  var now = clockNow();
+  var nowEl = el('cdNow');
+  if (nowEl) nowEl.textContent = '지금 ' + ampmTime(pad2(now.getHours())+':'+pad2(now.getMinutes())) + ':' + pad2(now.getSeconds());
+
+  var states = arrivalStates();
+  var anyRun = false;
+  states.forEach(function(st){
+    var row = rows.querySelector('.cd-row[data-key="'+st.group.key+'"]');
+    if (!row) return;
+    var num = row.querySelector('.cd-num'), note = row.querySelector('.cd-note');
+    if (!num || !note) return;
+    var sec = Math.max(0, Math.round(st.leftMs/1000));
+    var cls = 'cd-row ' + st.state;
+    if (st.state === 'run'){
+      anyRun = true;
+      num.textContent = cdClock(sec);
+      if (sec <= 300) { cls += ' urgent'; note.textContent = '5분 남았어요!'; }
+      else if (sec <= 600) { cls += ' warn'; note.textContent = '10분 남았어요'; }
+      else if (sec <= 1800) { note.textContent = '곧 출발할 시간'; }
+      else { note.textContent = '여유 있어요'; }
+    } else if (st.state === 'gone'){
+      num.textContent = '완료'; note.textContent = '도장 찍었어요';
+    } else if (st.state === 'done'){
+      num.textContent = '완료'; note.textContent = '오늘 등교 끝';
+    } else {
+      num.textContent = '주말'; note.textContent = '등교 없어요';
+    }
+    row.className = cls;
+  });
+
+  var nx = el('cdNext');
+  if (!nx) return;
+  if (anyRun){ nx.textContent = ''; return; }
+  var best = null;
+  states.forEach(function(st){ if (!best || st.nextLeftMs < best.nextLeftMs) best = st; });
+  if (!best){ nx.textContent = ''; return; }
+  var nd = parseYmd(best.nextDate);
+  nx.textContent = '다음 등교까지 ' + cdLong(best.nextLeftMs/1000)
+    + ' · ' + WD[nd.getDay()] + '요일 ' + best.group.label + ' ' + ampmTime(best.nextTime);
+}
+
 function renderHome(){
   el('home-morning').innerHTML = morningCard();
   el('home-weather').innerHTML = weatherCard();
+  el('home-countdown').innerHTML = schoolCountdownCard();
   el('home-today').innerHTML = todayCard();
   el('home-agenda').innerHTML = agendaCard();
   el('home-kids').innerHTML = kidsCard();
+  paintSchool();
 }
 
 /* ---- 일정 탭 ---- */
@@ -2815,6 +3048,11 @@ function boot(){
   renderAll();
   goToTab('home', { instant:true });
   loadWeather();
+  /* 등교 카운트다운: 1초마다 갱신, 탭으로 돌아왔을 때도 바로 맞추기 */
+  setInterval(paintSchool, 1000);
+  document.addEventListener('visibilitychange', function(){
+    if (!document.hidden) paintSchool();
+  });
 }
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', boot);
